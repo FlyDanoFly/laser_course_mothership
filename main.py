@@ -1,79 +1,30 @@
-from sound_banks import SOUNDBANKS
+import random
+from enum import Enum
+
 import pygame
 from pprint import pprint
-from pygame.constants import K_RETURN
 from transitions import Machine
-from enum import Enum
-import subprocess
-import random
-import os
-
 from transitions.core import MachineError, State
 
-from enums import Sas
+from enums import Sas, GameDifficulty, GameState, Trigger
+from sound_banks import SOUNDBANKS
+from utils import say
 
-
-class GameDifficulty(Enum):
-    EASY = 'cowardly'
-    HARD = 'doomed'
-
-class GameState(Enum):
-    TOP = 'top'
-    DORMANT = 'dormant'
-
-    START_CHOOSE_SAS = 'start_choose_sas'
-    CHOOSE_SAS = 'choose_sas'
-    CHANGE_SAS = 'change_sas'
-
-    INSTRUCTIONS = 'instructions'
-
-    START_CHOOSE_DIFFICULTY = 'start_choose_difficulty'
-    CHOOSE_DIFFICULTY = 'choose_difficulty'
-    CHANGE_DIFFICULTY = 'change_difficulty'
-
-    READY_TO_PLAY_GAME = 'ready_to_play_game'
-    PLAY_GAME = 'play_game'
-    WIN = 'win'
-    LOSE = 'lose'
-
-class Trigger(Enum):
-    # By function
-    PRESS_RESET = 'press_reset'
-    PRESS_SELECT = 'press_select'
-    PRESS_CHANGE = 'press_change'
-    PRESS_WIN = 'press_win'
-    TRIP_BEAM = 'trip_beam'
-
-    # By button color
-    PRESS_YELLOW = 'press_reset'
-    PRESS_BLUE = 'press_change'
-    PRESS_RED = 'press_select'
-    PRESS_GREEN = 'press_win'
 
 
 # I want Transitions to support enum like Trigger.PRESS_RESET not Trigger.PRESS_RESET.name
 # From https://stackoverflow.com/a/68297055
 class EnumTransitionMachine(Machine):
     def add_transition(self, trigger, *args, **kwargs):
-        print(hasattr(trigger, 'name'))
-        if hasattr(trigger, 'name'):
-            print('calling with')
-            print(trigger.name)
         super().add_transition(getattr(trigger, 'name', trigger), *args, **kwargs)
 
-class BankCallerMixin():
-    def __getattr__(self, name):
-        if name.startswith('call_bank_'):
-            print('Call a bank')
-        def method(*args):
-            print("tried to handle unknown method " + name)
-            if args:
-                print("it had arguments: " + str(args))
 
 class BankPlayingState(State):
     def __init__(self, bank_enum, *args, **kwargs):
         bank_name = f'{bank_enum.value}'
         super().__init__()
+
+        
 class LaserStateMachine():
     # states = ['watching', 'waiting_for_reset', 'win']
 
@@ -133,10 +84,6 @@ class LaserStateMachine():
 
         # Immediatly switch to the dormant state
         self.to_DORMANT()
-
-        #self.machine.on_enter_watching('start_watching')
-        #self.machine.on_enter_waiting_for_reset('start_waiting_for_reset')
-        #self.machine.on_enter_win('start_win')
 
     # Prototype for sound banks
     def __getattr__(self, name):
@@ -199,37 +146,6 @@ class LaserStateMachine():
     def on_enter_LOSE(self):
         say("You messed up lots! Go back and press the button or else")
 
-    def start_watching(self):
-        print('hello, I am watching you')
-        self.screen.fill((0,0,0))
-        self.screen.blit(self.img_watching, (50,50))
-        pygame.display.flip()
-
-    def start_waiting_for_reset(self):
-        print('hello, I am watching you')
-        self.screen.fill((0,0,0))
-        self.screen.blit(self.img_lose, (50,50))
-        pygame.display.flip()
-
-    def start_win(self):
-        print('hello, I am watching you')
-        self.screen.fill((0,0,0))
-        self.screen.blit(self.img_win, (50,50))
-        pygame.display.flip()
-
-def say(words):
-    command = getattr(say, 'command', None)
-    if not command:
-        result = os.system('say hello')
-        if result == 0:
-            command = 'say'
-        else:
-            result = os.system('espeak hello')
-            if result == 0:
-                command = 'espeak'
-        setattr(say, 'command', command)
-    print(f'Saying: "{words}"')
-    subprocess.run([command, '-r 300', words])
 
 def main():
     print('='*80)
@@ -254,7 +170,6 @@ def main():
 
     # Try out the state machine
     maze = LaserStateMachine(screen)
-    pprint(dir(maze))
 
     keymap = {
         pygame.K_1: Trigger.PRESS_SELECT.name,
@@ -284,6 +199,8 @@ def main():
                         maze.play_bank_wrong()
                         # raise
                     print(f'Key: {pygame.key.name(event.key):5}  Trigger: {trigger:12}  From state:  {pre_state:23}  To state: {maze.state:23}')
+                elif event.key == pygame.K_ESCAPE:
+                    running = False
 
     print('done')
 
