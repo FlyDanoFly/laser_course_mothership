@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "laser_serial_reader"
+name = "laser_course_mothership"
 version = "0.1.0"
 description = "Read from the serial monitor and do things"
 authors = ["Your Name <you@example.com>"]
@@ -8,6 +8,7 @@ authors = ["Your Name <you@example.com>"]
 python = "^3.9"
 pyserial = "^3.5"
 pygame = "^2.0.1"
+transitions = "^0.8.8"
 
 [tool.poetry.dev-dependencies]
 
