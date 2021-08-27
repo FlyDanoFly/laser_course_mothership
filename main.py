@@ -1,127 +1,291 @@
-import struct
-import serial
-from tkinter import *
-import time
-import threading
-import sys
+from sound_banks import SOUNDBANKS
 import pygame
+from pprint import pprint
+from pygame.constants import K_RETURN
+from transitions import Machine
+from enum import Enum
+import subprocess
+import random
+import os
+
+from transitions.core import MachineError, State
+
+from enums import Sas
 
 
-SOUND_LOOP_FILENAME = '397787__sieuamthanh__alarm-0.wav'
-#SOUND_LOOP_FILENAME = '16445__kkz__redub.wav'
-LASER_OPEN = '#0f0'
-LASER_BLOCKED = '#f00'
-LASER_INIT = '#aaa'
+class GameDifficulty(Enum):
+    EASY = 'cowardly'
+    HARD = 'doomed'
 
-#SERIAL_BAUD_RATE = 9600
-SERIAL_BAUD_RATE = 115200
+class GameState(Enum):
+    TOP = 'top'
+    DORMANT = 'dormant'
 
-# Binary structure:
-#    1 byte: 0xff - record separator
-#    4 byte: bit stream for laser switch state, 0 = no laser, 1 = laser
-STRUCT = '5B'
+    START_CHOOSE_SAS = 'start_choose_sas'
+    CHOOSE_SAS = 'choose_sas'
+    CHANGE_SAS = 'change_sas'
 
-class BitMask:
-    def __init__(self, number_of_bits, starting_value=0x0):
-        self.number_of_bits = number_of_bits
-        self.bitmask = starting_value
-    
-    def get(self, bit_index):
-        return self.bitmask & (1 << bit_index)
+    INSTRUCTIONS = 'instructions'
 
-    def get_normalized(self, bit_index):
-        return (self.bitmask >> bit_index) & 1
+    START_CHOOSE_DIFFICULTY = 'start_choose_difficulty'
+    CHOOSE_DIFFICULTY = 'choose_difficulty'
+    CHANGE_DIFFICULTY = 'change_difficulty'
 
-    def set(self, bit_index):
-        self.bitmask |= (1 << bit_index)
+    READY_TO_PLAY_GAME = 'ready_to_play_game'
+    PLAY_GAME = 'play_game'
+    WIN = 'win'
+    LOSE = 'lose'
 
-    def set_all(self, value):
-        self.bitmask = value
+class Trigger(Enum):
+    # By function
+    PRESS_RESET = 'press_reset'
+    PRESS_SELECT = 'press_select'
+    PRESS_CHANGE = 'press_change'
+    PRESS_WIN = 'press_win'
+    TRIP_BEAM = 'trip_beam'
 
-    def toggle(self, bit_index):
-        self.bitmask ^= (1 << bit_index)
-
-    def clear(self, bit_index):
-        self.bitmask &= ~(1 << bit_index)
-
-    def clear_all(self, bit_index):
-        self.bitmask = 0
+    # By button color
+    PRESS_YELLOW = 'press_reset'
+    PRESS_BLUE = 'press_change'
+    PRESS_RED = 'press_select'
+    PRESS_GREEN = 'press_win'
 
 
-def thread_fun4(laser_labels, stop_event):
-    s = serial.Serial(port=sys.argv[1], baudrate=SERIAL_BAUD_RATE)
-    packet = struct.Struct('<BL')
-    struct_separator = struct.Struct('<B')
-    nt = time.time() + 1
-    lazer_switches = BitMask(4)
+# I want Transitions to support enum like Trigger.PRESS_RESET not Trigger.PRESS_RESET.name
+# From https://stackoverflow.com/a/68297055
+class EnumTransitionMachine(Machine):
+    def add_transition(self, trigger, *args, **kwargs):
+        print(hasattr(trigger, 'name'))
+        if hasattr(trigger, 'name'):
+            print('calling with')
+            print(trigger.name)
+        super().add_transition(getattr(trigger, 'name', trigger), *args, **kwargs)
 
-    pygame.mixer.init()
-    sound = pygame.mixer.Sound(SOUND_LOOP_FILENAME)
-    channel = pygame.mixer.find_channel()
-    channel = sound.play(-1)
-    channel.pause()
-    is_playing = False
+class BankCallerMixin():
+    def __getattr__(self, name):
+        if name.startswith('call_bank_'):
+            print('Call a bank')
+        def method(*args):
+            print("tried to handle unknown method " + name)
+            if args:
+                print("it had arguments: " + str(args))
 
-    num_updates = 0
-    num_secs = 0
-    while not stop_event.is_set():
-        num_updates += 1
-        separator, packet2 = packet.unpack(s.read(5))
-        if separator != 0xff:
-            print('Invalid separator, resyncing...')
-            while separator != 0xff:
-                separator = struct_separator.unpack(s.read(1))[0]
-                print('    received: {}'.format(hex(separator)))
-            s.read(4)
-            print('    ...resyncing complete')
-            continue
+class BankPlayingState(State):
+    def __init__(self, bank_enum, *args, **kwargs):
+        bank_name = f'{bank_enum.value}'
+        super().__init__()
+class LaserStateMachine():
+    # states = ['watching', 'waiting_for_reset', 'win']
 
-        lazer_switches.set_all(packet2)
+    def __init__(self, screen):
+        self.screen = screen
 
-        if lazer_switches.get(0):
-            channel.pause()
-            color = LASER_OPEN
+        self.sas = Sas.CRUEL
+        self.difficulty_level = GameDifficulty.EASY
+
+        self.bank = SOUNDBANKS
+
+        transitions = [
+            # Resseting from any state: say "Reset!"
+            {'trigger': Trigger.PRESS_RESET, 'source': '*', 'dest': GameState.DORMANT, 'before': 'say_reset'},
+
+            # Transitioning into dormant: say "press the red button to start, yellow is reset"
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.DORMANT, 'dest': GameState.START_CHOOSE_SAS},
+            # {'trigger': Trigger.PRESS_SELECT, 'source': GameState.DORMANT, 'dest': GameState.DORMANT},  # say "pay attention"
+            # {'trigger': Trigger.PRESS_WIN, 'source': GameState.DORMANT, 'dest': GameState.DORMANT},  # say "pay attention"
+            # {'trigger': Trigger.TRIP_BEAM, 'source': GameState.DORMANT, 'dest': GameState.DORMANT},  # say "pay attention"
+
+            # Transitioning into start_choose_sas: say "Select your level of sas with the blue button, when you're on the setting you want press the red button"
+            # Transitory state, just play the sound and transition to "CHOOSE_SAS"
+
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.CHOOSE_SAS, 'dest': GameState.INSTRUCTIONS}, # say "choice made"
+            {'trigger': Trigger.PRESS_CHANGE, 'source': GameState.CHOOSE_SAS, 'dest': GameState.CHANGE_SAS, 'after': 'play_bank_selecting_sas'}, # say the next option
+
+            # Transitioning into instructions: say "Instructions blah blah blah press red to skip blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah"
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.INSTRUCTIONS, 'dest': GameState.START_CHOOSE_DIFFICULTY}, # say "it's your funeral"
+
+            # Transitioning into choose_mode: say "Select your level of difficulty with the blue button, when you're on the setting you want press the red button"
+            # start_choose_difficulty tranisitons into choosing difficulty
+
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.CHOOSE_DIFFICULTY, 'dest': GameState.READY_TO_PLAY_GAME}, # say "mode selected"
+            {'trigger': Trigger.PRESS_CHANGE, 'source': GameState.CHOOSE_DIFFICULTY, 'dest': GameState.CHANGE_DIFFICULTY},# say next option
+
+            # Transitioning into start_play_game: say "Press the red button to play!"
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.READY_TO_PLAY_GAME, 'dest': GameState.PLAY_GAME},
+
+            # Transitioning into play_game: say "Play!"
+            {'trigger': Trigger.PRESS_WIN, 'source': GameState.PLAY_GAME, 'dest': GameState.WIN},
+            {'trigger': Trigger.TRIP_BEAM, 'source': GameState.PLAY_GAME, 'dest': GameState.LOSE},  # say "You messed up lots! Go back and press the button or else"
+
+            # Transitioning into win: say "You win! Amazing or you suck depending on mode!"
+            # TODO: currently ignores all input and must reset to get out
+            # {'trigger': Trigger.PRESS_YELLOW, 'source': GameState.WIN, 'dest': GameState.DORMANT},
+            # {'trigger': Trigger.PRESS_CHANGE, 'source': GameState.WIN, 'dest': GameState.DORMANT},
+            # {'trigger': Trigger.PRESS_SELECT, 'source': GameState.WIN, 'dest': GameState.DORMANT},
+            # {'trigger': Trigger.PRESS_WIN, 'source': GameState.WIN, 'dest': '----'}, # say "You already won, idiot."
+            # {'trigger': Trigger.TRIP_BEAM, 'source': GameState.WIN, 'dest': GameState.START_PLAY_GAME},
+
+            # Transitioning into lose: say "You messed up lots! Go back and press the button or else"
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.LOSE, 'dest': GameState.READY_TO_PLAY_GAME},
+        ]
+
+        self.machine = EnumTransitionMachine(model=self, states=GameState, transitions=transitions, initial=GameState.DORMANT)
+
+        # Immediatly switch to the dormant state
+        self.to_DORMANT()
+
+        #self.machine.on_enter_watching('start_watching')
+        #self.machine.on_enter_waiting_for_reset('start_waiting_for_reset')
+        #self.machine.on_enter_win('start_win')
+
+    # Prototype for sound banks
+    def __getattr__(self, name):
+        play_bank_prefix = 'play_bank_'
+        if name.startswith(play_bank_prefix):
+            bank_name = name[len(play_bank_prefix):]
+            def method(*args, **kwargs):
+                print(f'{self.__class__.__name__} playing from bank {bank_name}')
+                say(random.choice(self.bank[self.sas][bank_name]))
+            return method
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")        
+
+    def pay_attention(self):
+        say('Wrong! Pay attention!')
+
+    def say_reset(self):
+        say('Resetting!')
+        
+    def on_enter_DORMANT(self):
+        say('press the red button to start, yellow is reset')
+
+    def on_enter_START_CHOOSE_SAS(self):
+        say("Select your level of sas with the blue button, when you\'re on the setting you want press the red button")
+        self.to_CHOOSE_SAS(self)
+
+    def on_enter_CHANGE_SAS(self):
+        if self.sas == Sas.CRUEL:
+            self.sas = Sas.ENCOURAGING
+        elif self.sas == Sas.ENCOURAGING:
+            self.sas = Sas.CRUEL
+        say(self.sas.value)
+        self.to_CHOOSE_SAS()
+
+    def on_enter_INSTRUCTIONS(self):
+        say(f'You have chosen sas level: {self.sas.value}')
+        self.play_bank_instructions()
+
+    def on_enter_START_CHOOSE_DIFFICULTY(self):
+        say("Select your level of difficulty with the blue button, when you're on the setting you want press the red button")
+        self.to_CHOOSE_DIFFICULTY()
+
+    def on_enter_CHANGE_DIFFICULTY(self):
+        if self.difficulty_level == GameDifficulty.EASY:
+            self.difficulty_level = GameDifficulty.HARD
+        elif self.difficulty_level == GameDifficulty.HARD:
+            self.difficulty_level = GameDifficulty.EASY
+        say(self.difficulty_level.value)
+        self.to_CHOOSE_DIFFICULTY()
+
+    def on_enter_READY_TO_PLAY_GAME(self):
+        say(f'You have chosen difficulty level: {self.difficulty_level.value}')
+        say("You're all set, press the red button to play!")
+
+    def on_enter_PLAY_GAME(self):
+        say("Ready, set, go!")
+
+    def on_enter_WIN(self):
+        self.play_bank_win()
+
+    def on_enter_LOSE(self):
+        say("You messed up lots! Go back and press the button or else")
+
+    def start_watching(self):
+        print('hello, I am watching you')
+        self.screen.fill((0,0,0))
+        self.screen.blit(self.img_watching, (50,50))
+        pygame.display.flip()
+
+    def start_waiting_for_reset(self):
+        print('hello, I am watching you')
+        self.screen.fill((0,0,0))
+        self.screen.blit(self.img_lose, (50,50))
+        pygame.display.flip()
+
+    def start_win(self):
+        print('hello, I am watching you')
+        self.screen.fill((0,0,0))
+        self.screen.blit(self.img_win, (50,50))
+        pygame.display.flip()
+
+def say(words):
+    command = getattr(say, 'command', None)
+    if not command:
+        result = os.system('say hello')
+        if result == 0:
+            command = 'say'
         else:
-            channel.unpause()
-            color = LASER_BLOCKED
-        if color != laser_labels[0][1]:
-            laser_labels[0][0].config(background=color)
-            laser_labels[0][1] = color
+            result = os.system('espeak hello')
+            if result == 0:
+                command = 'espeak'
+        setattr(say, 'command', command)
+    print(f'Saying: "{words}"')
+    subprocess.run([command, '-r 300', words])
 
-        t = time.time()
-        if t > nt:
-            num_secs += 1
-            print(f'num_updates={num_updates} updates/sec={int(num_updates/num_secs)}', '0x{:032b}'.format(packet2), packet2, hex(packet2), lazer_switches.get_normalized(9))
-            nt = t + 1
-            
 def main():
-    #Define the tkinter instance
-    win= Tk()
+    print('='*80)
+    pygame.init()
+    info = pygame.display.Info()
+    w = info.current_w
+    h = info.current_h
+    print(w,h)
+    print('='*80)
+    screen = pygame.display.set_mode((300, 300))
+    # screen = pygame.display.set_mode((w,h), pygame.FULLSCREEN)
 
-    #Define the size of the tkinter frame
-    win.geometry("700x500")
+    logo = pygame.image.load('pikacha_square.png')
+    pygame.display.set_icon(logo)
+    pygame.display.set_caption("minimal program")
 
-    laser_labels = [
-        [Label(win, text=f'Laser {d}', width=95, height=5, background=LASER_INIT), LASER_INIT]
-        for d in range(10)]
+    img_ready = pygame.image.load('are_you_ready__616x353.jpg')
+    screen.blit(img_ready, (50, 50))
+    pygame.display.flip()
 
-    for laser_label in laser_labels:
-        laser_label[0].pack(pady=5)
 
-    label= Label(win)
-    label.pack(pady=20)
-    stop_event = threading.Event()
-    monitor_thread = threading.Thread(target=thread_fun4, args=(laser_labels, stop_event))
-    monitor_thread.daemon = True
-    monitor_thread.start()
 
-    try:
-        win.mainloop()
-    except KeyboardInterrupt:
-        pass
-    print('stopping event...')
-    stop_event.set()
-    monitor_thread.join()
+    # Try out the state machine
+    maze = LaserStateMachine(screen)
+    pprint(dir(maze))
+
+    keymap = {
+        pygame.K_1: Trigger.PRESS_SELECT.name,
+        pygame.K_2: Trigger.PRESS_CHANGE.name,
+        pygame.K_3: Trigger.PRESS_WIN.name,
+        pygame.K_SPACE: Trigger.TRIP_BEAM.name,
+        pygame.K_RETURN: Trigger.PRESS_RESET.name,
+    }
+
+    running = True
+    # main loop
+    while running:
+        # event handling, gets all event from the event queue
+        for event in pygame.event.get():
+            # only do something if the event is of type QUIT
+            if event.type == pygame.QUIT:
+                # change the value to False, to exit the main loop
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                trigger = keymap.get(event.key)
+                if trigger:
+                    try:
+                        pre_state = maze.state
+                        maze.trigger(trigger)
+                    except MachineError as e:
+                        print('Error:', e)
+                        maze.play_bank_wrong()
+                        # raise
+                    print(f'Key: {pygame.key.name(event.key):5}  Trigger: {trigger:12}  From state:  {pre_state:23}  To state: {maze.state:23}')
+
+    print('done')
 
 if __name__ == '__main__':
     main()
