@@ -10,7 +10,7 @@ def say(words, verbose=True):
         result = os.system('say hello')
         if result == 0:
             command = 'say'
-            options = ['-r', '300']
+            options = ['-r', '500']
         else:
             result = os.system('espeak hello')
             if result == 0:
