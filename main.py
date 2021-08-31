@@ -1,14 +1,15 @@
 from pprint import pprint
-import threading
+from time import time
 
 import pygame
 from transitions.core import MachineError
 
 from ButtonMachine import ButtonMachine
-from data_transfer import ButtonStates, ON_LINUX
+from data_transfer import LASER_STRUCT_SIZE_BYTES, NUM_LASERS, AllStates, ButtonStates, ON_LINUX
 from constants import ButtonState, ButtonStateRaw, GameState, Trigger
 from LaserStateMachine import LaserStateMachine
-
+from utils import say
+from LaserTripper import LaserTripper
 
 
 def get_button_states(button_machine):
@@ -85,18 +86,27 @@ def main():
 
     pygame.mixer.init()
     voice_channel = pygame.mixer.Channel(0)
-    voice_channel.set_endevent(pygame.USEREVENT)
+    # voice_channel.set_endevent(pygame.USEREVENT)
+
+    laser_tripper = LaserTripper(NUM_LASERS)
+    als = AllStates()
+    laser_tripper.calibrate(als, 2)
+    input('Press return to do readings - ')
+    laser_tripper.get_readings(als)
+    
+    print('--that is all for now')
+    return 
 
     # Try out the state machine
     maze = LaserStateMachine(voice_channel)
 
-    keymap = {
-        pygame.K_1: Trigger.PRESS_SELECT.name,
-        pygame.K_2: Trigger.PRESS_CHANGE.name,
-        pygame.K_3: Trigger.PRESS_WIN.name,
-        pygame.K_SPACE: Trigger.TRIP_BEAM.name,
-        pygame.K_RETURN: Trigger.PRESS_RESET.name,
-    }
+    # keymap = {
+    #     pygame.K_1: Trigger.PRESS_SELECT.name,
+    #     pygame.K_2: Trigger.PRESS_CHANGE.name,
+    #     pygame.K_3: Trigger.PRESS_WIN.name,
+    #     pygame.K_SPACE: Trigger.TRIP_BEAM.name,
+    #     pygame.K_RETURN: Trigger.PRESS_RESET.name,
+    # }
 
     button_machine = [ButtonMachine() for i in range(6)]
     keyboard_button_machine = [ButtonMachine() for i in range(6)]

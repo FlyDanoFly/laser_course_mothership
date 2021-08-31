@@ -2,7 +2,15 @@ from pprint import pprint
 import struct
 import time
 
+def clear_screen():
+    import os
+    os.system('clear')
 
+def clear_screen2():
+    print(chr(27)+'[2j')
+    print('\033c')
+    print('\x1bc')
+    
 # MICROCONTROLLER A
 #    controls 3 lasers
 #    controls 4 buttons
@@ -83,25 +91,24 @@ if ON_LINUX:
                 address = 0x9
                 num_bytes = LASER_STRUCT_SIZE_BYTES * NUM_LASERS_BANK_A
                 raw_data.extend(self.get_from_microcontroller(address, num_bytes))
-                print('-')
-                print(raw_data)
+                ## print('-')
+                ## print(raw_data)
                 # Get 7 lasers from the first microcontroller + 4 buttons
                 address = 0x7
                 num_bytes = LASER_STRUCT_SIZE_BYTES * NUM_LASERS_BANK_B + BUTTON_STRUCT_SIZE_BYTES * NUM_BUTTONS
                 raw_data2 = self.get_from_microcontroller(address, num_bytes)
                 raw_data.extend(raw_data2)
-                print(raw_data2)
+                ## print(raw_data2)
             except OSError as e:
                 print('Error at get_button_states() level!', e)
 
             # descructify the data
             try:
-                print('Unpacking the data')
+                ## print('Unpacking the data')
                 comingled_data = struct.unpack(BIG_STRUCT_C, bytes(raw_data))
             except TypeError as e:
                 print(f'Error unpacking the data, e = ', e)
                 comingled_data = [None] * (NUM_LASERS + NUM_BUTTONS)
-                
             laser_data = comingled_data[:NUM_LASERS]
             button_data = comingled_data[NUM_LASERS:]
             return comingled_data, laser_data, button_data
