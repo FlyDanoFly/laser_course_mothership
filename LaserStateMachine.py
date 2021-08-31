@@ -21,7 +21,9 @@ class BankPlayingState(State):
 
 
 class LaserStateMachine():
-    def __init__(self):
+    def __init__(self, channel):
+        self.channel = channel
+
         self.difficulty_level = GameDifficulty.EASY
 
         self.bank = get_sound_banks()
@@ -53,7 +55,7 @@ class LaserStateMachine():
             # start_choose_difficulty tranisitons into choosing difficulty
 
             # Transitioning into instructions: say "Instructions blah blah blah press red to skip blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah"
-            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.INSTRUCTIONS, 'dest': GameState.START_CHOOSE_DIFFICULTY}, # say "it's your funeral"
+            {'trigger': Trigger.PRESS_SELECT, 'source': GameState.INSTRUCTIONS, 'dest': GameState.SKIP_INSTRUCTIONS}, # say "it's your funeral"
 
             {'trigger': Trigger.PRESS_CHANGE, 'source': GameState.START_CHOOSE_DIFFICULTY, 'dest': GameState.CHOOSE_EASY}, # say "it's your funeral"
             {'trigger': Trigger.PRESS_CHANGE, 'source': GameState.CHOOSE_EASY, 'dest': GameState.CHOOSE_HARD}, # say "it's your funeral"
@@ -127,11 +129,11 @@ class LaserStateMachine():
                 s = random.choice(self.default_bank[bank_name])
 
         if s:
-            s.play()
+            self.channel.play(s)
             # TODO: institute an actual callback, looks like it'll have to be sending an event and then catching the enevnt and doing something
             # Wait for the sound to finish playing before proceeding
-            while pygame.mixer.get_busy():
-                pass
+            # while pygame.mixer.get_busy():
+            #     pass
 
     def say_reset(self):
         say('Resetting!')
@@ -147,6 +149,12 @@ class LaserStateMachine():
 
     def on_enter_CHOSE_SAS(self):
         self.to_INSTRUCTIONS()
+
+    def on_enter_SKIP_INSTRUCTIONS(self):
+        # N00B way to wait until the sound is done then transition to the next state
+        while self.channel.get_busy():
+            pass
+        self.to_START_CHOOSE_DIFFICULTY()
 
     # def on_enter_INSTRUCTIONS(self):
     #     say(f'You have chosen sas level: {self.selected_bank_name}')
