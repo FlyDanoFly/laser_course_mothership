@@ -9,8 +9,10 @@ from data_transfer import LASER_STRUCT_SIZE_BYTES, NUM_LASERS, AllStates, Button
 from constants import ButtonState, ButtonStateRaw, GameState, Trigger
 from LaserStateMachine import LaserStateMachine
 from utils import say
-from LaserTripper import LaserTripper
+from LaserTripper import LaserTripper, LaserTriggerTuple
 
+LASER_BEAM_TRIP_LOOPING_SONUD = '397787__sieuamthanh__alarm-0.ogg'
+LASER_BEAM_TRIP_ALERT_SOUND = ''
 
 def get_button_states(button_machine):
     button_states = getattr(get_button_states, '_button_states', None)
@@ -86,27 +88,20 @@ def main():
 
     pygame.mixer.init()
     voice_channel = pygame.mixer.Channel(0)
+    trip_beam_channel = pygame.mixer.Channel(1)
+    trip_beam_looping_sound = pygame.mixer.Sound(LASER_BEAM_TRIP_LOOPING_SONUD)
+    trip_beam_channel.play(trip_beam_looping_sound)
+    trip_beam_channel.pause()
+
     # voice_channel.set_endevent(pygame.USEREVENT)
 
     laser_tripper = LaserTripper(NUM_LASERS)
-    als = AllStates()
-    laser_tripper.calibrate(als, 2)
-    input('Press return to do readings - ')
-    laser_tripper.get_readings(als)
-    
-    print('--that is all for now')
-    return 
+    all_states = AllStates()
+    # ONLY RECOMMEND 2 RIGHT NOW, MORE THAN 2 may have bugs
+    laser_tripper.calibrate(all_states, 2)
 
     # Try out the state machine
     maze = LaserStateMachine(voice_channel)
-
-    # keymap = {
-    #     pygame.K_1: Trigger.PRESS_SELECT.name,
-    #     pygame.K_2: Trigger.PRESS_CHANGE.name,
-    #     pygame.K_3: Trigger.PRESS_WIN.name,
-    #     pygame.K_SPACE: Trigger.TRIP_BEAM.name,
-    #     pygame.K_RETURN: Trigger.PRESS_RESET.name,
-    # }
 
     button_machine = [ButtonMachine() for i in range(6)]
     keyboard_button_machine = [ButtonMachine() for i in range(6)]
@@ -121,10 +116,13 @@ def main():
                 key = sys.stdin.read(1)
             return key
 
+
         while running:
             if voice_channel.get_busy() and maze.state != GameState.INSTRUCTIONS:
                 # Only allow buttons skipping the instructions
                 continue
+
+            __, laser_infos, button_infos = all_states.get_all_data()
 
             if ON_LINUX:
                 # TODO: this sorta exists in the loop() function, bring it here and get rid of the thread so either buttons or keyboard can work
@@ -133,8 +131,21 @@ def main():
 
             get_keyboard_button_states(keyboard_button_machine, get_key)
 
+            # Boil all the beams into one tripped state
+            is_beam_tripped = False
+            readings = laser_tripper.get_readings(laser_infos)
+            debounced_readings = [x.debounced for x in readings]
+            is_beam_tripped = not any(debounced_readings)
+
+            if is_beam_tripped:
+                trip_beam_channel.unpause()
+            else:
+                trip_beam_channel.pause()
+
             trigger = None
-            if keyboard_button_machine[5].state == ButtonState.DOWN or button_machine[5].state == ButtonState.DOWN:
+            if is_beam_tripped:
+                trigger = Trigger.TRIP_BEAM.name
+            elif keyboard_button_machine[5].state == ButtonState.DOWN or button_machine[5].state == ButtonState.DOWN:
                 running = False
             elif keyboard_button_machine[0].state == ButtonState.DOWN or button_machine[0].state == ButtonState.DOWN:
                 trigger = Trigger.PRESS_SELECT.name
@@ -151,8 +162,10 @@ def main():
                     pre_state = maze.state
                     maze.trigger(trigger)
                 except MachineError as e:
-                    print('Error:', e)
-                    maze.play_bank_disobedience()
+                    # Ignore invalid transitions right now
+                    pass
+                    # print('Error:', e)
+                    # maze.play_bank_disobedience()
 
                 print(f'Trigger: {trigger:12}  From state:  {pre_state:23}  To state: {maze.state:23}')
 

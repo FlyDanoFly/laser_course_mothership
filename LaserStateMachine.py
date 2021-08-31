@@ -137,6 +137,8 @@ class LaserStateMachine():
 
     def say_reset(self):
         say('Resetting!')
+        self.selected_bank = self.default_bank
+        self.selected_bank_name = DEFAULT_SOUND_BANK_NAME
         
     def on_enter_CHANGE_SAS(self):
         if self.selected_bank == self.default_bank:
@@ -156,14 +158,6 @@ class LaserStateMachine():
             pass
         self.to_START_CHOOSE_DIFFICULTY()
 
-    # def on_enter_INSTRUCTIONS(self):
-    #     say(f'You have chosen sas level: {self.selected_bank_name}')
-    #     self.play_bank_instructions()
-
-    # def on_enter_START_CHOOSE_DIFFICULTY(self):
-    #     say("Select your level of difficulty with the blue button, when you're on the setting you want press the red button")
-    #     self.to_CHOOSE_DIFFICULTY()
-
     def on_enter_CHANGE_DIFFICULTY(self):
         if self.difficulty_level == GameDifficulty.EASY:
             self.difficulty_level = GameDifficulty.HARD
@@ -171,16 +165,3 @@ class LaserStateMachine():
             self.difficulty_level = GameDifficulty.EASY
         say(self.difficulty_level.value)
         self.to_CHOOSE_DIFFICULTY()
-
-    # def on_enter_READY_TO_PLAY_GAME(self):
-    #     say(f'You have chosen difficulty level: {self.difficulty_level.value}')
-    #     say("You're all set, press the red button to play!")
-
-    # def on_enter_PLAY_GAME(self):
-    #     say("Ready, set, go!")
-
-    # def on_enter_WIN(self):
-    #     self.play_bank_win()
-
-    # def on_enter_LOSE(self):
-    #     say("You messed up lots! Go back and press the button or else")

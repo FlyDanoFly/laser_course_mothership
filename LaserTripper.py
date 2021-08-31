@@ -8,6 +8,7 @@ from utils import say
 
 MAX_DEQUE_LENGTH = 4000
 LASER_SAMPLE_SECS = 0.5
+VALID_LASERS = [10]
 
 LaserSample = namedtuple('LaserSample', ('timestamp', 'reading'))
 LaserTriggerTuple = namedtuple('LaserTriggerTuple', ('instant', 'debounced'))
@@ -57,7 +58,10 @@ class LaserTripper():
                 else:
                     self.calibrations[idx][which_value] = (self.calibrations[idx][which_value] + avg_reading) // 2
             print(f'average {which_value} =', self.calibrations)
-        for cal in self.calibrations:
+        for idx, cal in enumerate(self.calibrations):
+            if VALID_LASERS and idx in VALID_LASERS:
+                cal['in_use'] = False
+
             low = cal['low_value']
             high = cal['high_value']
             diff = high - low
@@ -78,7 +82,10 @@ class LaserTripper():
             if in_use:
                 cal['threshold'] = p75
             print(f'low / high / diff / ratio / 66% / 75% / in_use = {low} / {high} / {diff} / {ratio} / {p66} / {p75} / {cal["in_use"]}')
-        pprint(self.calibrations)
+            
+        for idx, c in enumerate(self.calibrations):
+            print(f'Laser {idx} is in-use - {c["in_use"]}')
+
 
     def _procees_queues(self, laser_readings):
         now = time.time()
@@ -108,11 +115,14 @@ class LaserTripper():
             # Currently more that 50% means it is on
             readings = [x.reading for x in q]
             debounced_info = readings.count(True) > (len(q) / 2)
-            print(readings.count(True), readings.count(False), readings.count(None), len(q)) #, q)
+            # print(readings.count(True), readings.count(False), readings.count(None), len(q)) #, q)
             debounced_data.append(LaserTriggerTuple(instant_info, debounced_info))
         return debounced_data
 
-    def get_readings(self, data_transferer):
+    def get_readings(self, laser_infos):
+        return self._procees_queues(laser_infos)
+
+    def get_readings_self_contained_loop_for_testing(self, data_transferer):
         from data_transfer import clear_screen, clear_screen2
         while True:
             __, laser_infos, __ = data_transferer.get_all_data()
@@ -121,29 +131,3 @@ class LaserTripper():
             for idx, (instant_info, debounced_info) in enumerate(infos):
                 print(f'{idx:02} - {str(instant_info):5} - {str(debounced_info):5}')
                 continue
-
-                # too fancy, but keep in case it is helpful
-                if instant_info is None:
-                    instant_text = '--'
-                elif instant_info is False:
-                    instant_text = 'off'
-                elif instant_info is True:
-                    instant_text = 'on'
-                else:
-                    raise RuntimeError('Bad instant state')
-
-                if debounced_info is None:
-                    debounced_text = '--'
-                elif debounced_info is False:
-                    debounced_text = 'off'
-                elif debounced_info is True:
-                    debounced_text = 'on'
-                else:
-                    raise RuntimeError('Bad debounced state')
-
-                if instant_info is None and debounced_info is None:
-                    instant_text = 'xx'
-                    debounced_text = 'xx'
-
-                print(f'{idx:02} - {instant_text:3} - {debounced_text:3}')
-
