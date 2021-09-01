@@ -5,7 +5,7 @@ import pygame
 from transitions.core import MachineError
 
 from ButtonMachine import ButtonMachine
-from data_transfer import LASER_STRUCT_SIZE_BYTES, NUM_LASERS, AllStates, ButtonStates, ON_LINUX
+from data_transfer import LASER_STRUCT_SIZE_BYTES, NUM_LASERS, AllStates, ButtonStates, ON_LINUX, clear_screen2
 from constants import ButtonState, ButtonStateRaw, GameState, Trigger
 from LaserStateMachine import LaserStateMachine
 from utils import say
@@ -136,6 +136,9 @@ def main():
             readings = laser_tripper.get_readings(laser_infos)
             debounced_readings = [x.debounced for x in readings]
             is_beam_tripped = not any(debounced_readings)
+            clear_screen2()
+            for idx, (instant_value, instant, debounced) in enumerate(readings):
+                print(f'{idx:3} - {str(instant_value):5} {str(instant):5} {str(debounced):5}')
 
             if is_beam_tripped:
                 trip_beam_channel.unpause()
@@ -167,7 +170,8 @@ def main():
                     # print('Error:', e)
                     # maze.play_bank_disobedience()
 
-                print(f'Trigger: {trigger:12}  From state:  {pre_state:23}  To state: {maze.state:23}')
+                if pre_state != maze.state:
+                    print(f'Trigger: {trigger:12}  From state:  {pre_state:23}  To state: {maze.state:23}')
 
             # events = pygame.event.get()
             # for event in events:

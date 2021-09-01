@@ -11,7 +11,7 @@ LASER_SAMPLE_SECS = 0.5
 VALID_LASERS = [10]
 
 LaserSample = namedtuple('LaserSample', ('timestamp', 'reading'))
-LaserTriggerTuple = namedtuple('LaserTriggerTuple', ('instant', 'debounced'))
+LaserTriggerTuple = namedtuple('LaserTriggerTuple', ('instant_value', 'instant', 'debounced'))
 
 
 class LaserTripper():
@@ -71,9 +71,15 @@ class LaserTripper():
             ratio = None
             if low == 0 and diff < 100:
                 in_use = False
+            elif low > high:
+                in_use = False
+            elif high == 0:
+                in_use = False
+            elif high < 200:
+                in_use = False
             else:
-                ratio = high / low - 1.0
-                if abs(ratio) < 0.1:
+                ratio = low / high
+                if ratio > 0.8:
                     in_use = False
 
             p66 = int(low + (diff) * 0.66)
@@ -81,8 +87,8 @@ class LaserTripper():
             cal['in_use'] = in_use
             if in_use:
                 cal['threshold'] = p75
-            print(f'low / high / diff / ratio / 66% / 75% / in_use = {low} / {high} / {diff} / {ratio} / {p66} / {p75} / {cal["in_use"]}')
-            
+            print(f'{idx} low / high / diff / ratio / 66% / 75% / in_use = {low} / {high} / {diff} / {ratio} / {p66} / {p75} / {cal["in_use"]}')
+
         for idx, c in enumerate(self.calibrations):
             print(f'Laser {idx} is in-use - {c["in_use"]}')
 
@@ -94,11 +100,11 @@ class LaserTripper():
         for idx, c in enumerate(self.calibrations):
             laser_reading = laser_readings[idx]
             if not c['in_use']:
-                debounced_data.append(LaserTriggerTuple(None, None))
+                debounced_data.append(LaserTriggerTuple(None, None, None))
                 continue
 
             if laser_reading is None:
-                debounced_data.append(LaserTriggerTuple(None, None))
+                debounced_data.append(LaserTriggerTuple(None, None, None))
                 continue
 
             q = c['deque']
@@ -116,7 +122,7 @@ class LaserTripper():
             readings = [x.reading for x in q]
             debounced_info = readings.count(True) > (len(q) / 2)
             # print(readings.count(True), readings.count(False), readings.count(None), len(q)) #, q)
-            debounced_data.append(LaserTriggerTuple(instant_info, debounced_info))
+            debounced_data.append(LaserTriggerTuple(laser_reading, instant_info, debounced_info))
         return debounced_data
 
     def get_readings(self, laser_infos):
